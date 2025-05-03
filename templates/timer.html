@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LRC - Timer</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/style.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <style>
+    .timer-display {
+      font-size: 3rem;
+      font-weight: bold;
+      text-align: center;
+      margin: 2rem 0;
+    }
+    
+    .timer-card {
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      padding: 2rem;
+      margin-top: 2rem;
+    }
+    
+    .timer-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .timer-active {
+      background-color: #e8f5e9;
+      border: 2px solid #4caf50;
+    }
+    
+    .timer-buttons .btn {
+      padding: 0.75rem 1.5rem;
+    }
+    
+    .timer-status {
+      text-align: center;
+      font-size: 1.25rem;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-5">
+    <div class="row justify-content-center">
+      <div class="col-md-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h2>LRC - Discussion Room Timer</h2>
+          <a href="/" class="btn btn-outline-secondary"><i class="fa fa-home"></i> Back to Home</a>
+        </div>
+        
+        <div class="alert alert-info">
+          <i class="fa fa-info-circle"></i> Use this timer to track your reservation time. Enter your reservation ID to start or stop the timer.
+        </div>
+        
+        <div class="timer-card">
+          <form id="reservation-lookup-form">
+            <div class="mb-3">
+              <label for="reservation-id" class="form-label">Reservation ID</label>
+              <input type="text" class="form-control" id="reservation-id" placeholder="Enter your reservation ID" required>
+            </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary">Load Reservation</button>
+            </div>
+          </form>
+        </div>
+        
+        <div id="reservation-details" class="timer-card mt-4" style="display:none;">
+          <h3 class="text-center mb-3">Reservation Details</h3>
+          <div class="row">
+            <div class="col-md-6">
+              <p><strong>Date:</strong> <span id="res-date"></span></p>
+              <p><strong>Room:</strong> <span id="res-room"></span></p>
+              <p><strong>Time:</strong> <span id="res-time"></span></p>
+            </div>
+            <div class="col-md-6">
+              <p><strong>Students:</strong></p>
+              <ul id="res-students"></ul>
+            </div>
+          </div>
+          
+          <div class="timer-display" id="timer-display">00:00:00</div>
+          
+          <div class="timer-status" id="timer-status">Timer is ready</div>
+          
+          <div class="timer-buttons">
+            <button id="start-timer" class="btn btn-success btn-lg"><i class="fa fa-play"></i> Start Timer</button>
+            <button id="stop-timer" class="btn btn-danger btn-lg" disabled><i class="fa fa-stop"></i> Stop Timer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Timer variables
+    let timerInterval;
+    let startTime;
+    let timerActive = false;
+    let reservationDetails = null;
+    
+    // DOM elements
+    const reservationLookupForm = document.getElementById('reservation-lookup-form');
+    const reservationIdInput = document.getElementById('reservation-id');
+    const reservationDetailsDiv = document.getElementById('reservation-details');
+    const resDateSpan = document.getElementById('res-date');
+    const resRoomSpan = document.getElementById('res-room');
+    const resTimeSpan = document.getElementById('res-time');
+    const resStudentsList = document.getElementById('res-students');
+    const timerDisplay = document.getElementById('timer-display');
+    const timerStatus = document.getElementById('timer-status');
+    const startTimerBtn = document.getElementById('start-timer');
+    const stopTimerBtn = document.getElementById('stop-timer');
+    
+    // Event listeners
+    reservationLookupForm.addEventListener('submit', handleReservationLookup);
+    startTimerBtn.addEventListener('click', startTimer);
+    stopTimerBtn.addEventListener('click', stopTimer);
+    
+    // Function to handle reservation lookup
+    async function handleReservationLookup(event) {
+      event.preventDefault();
+      
+      const reservationId = reservationIdInput.value.trim();
+      if (!reservationId) return;
+      
+      try {
+        // Fetch all reservations
+        const response = await fetch('/api/reservations');
+        if (!response.ok) throw new Error('Failed to fetch reservations');
+        
+        const allReservations = await response.json();
+        let found = false;
+        
+        // Search for the reservation with the given ID
+        for (const key in allReservations) {
+          const reservation = allReservations[key];
+          const details = reservation.details;
+          
+          if (details && details.reservation_id === reservationId) {
+            found = true;
+            reservationDetails = details;
+            
+            // Display reservation details
+            resDateSpan.textContent = details.date;
+            resRoomSpan.textContent = `Room ${details.room}`;
+            resTimeSpan.textContent = `${details.time} - ${details.endTime}`;
+            
+            // Display students
+            resStudentsList.innerHTML = '';
+            if (details.students && details.students.length > 0) {
+              details.students.forEach(student => {
+                const li = document.createElement('li');
+                li.textContent = `${student.name} (${student.studentId})`;
+                resStudentsList.appendChild(li);
+              });
+            }
+            
+            // Show reservation details
+            reservationDetailsDiv.style.display = 'block';
+            
+            // Check if timer is already active
+            if (details.timer_active) {
+              timerActive = true;
+              startTime = new Date(details.timer_start);
+              updateTimerDisplay();
+              startTimerInterval();
+              
+              startTimerBtn.disabled = true;
+              stopTimerBtn.disabled = false;
+              timerStatus.textContent = 'Timer is running';
+              timerStatus.style.color = '#4caf50';
+            } else {
+              timerActive = false;
+              timerDisplay.textContent = '00:00:00';
+              
+              startTimerBtn.disabled = false;
+              stopTimerBtn.disabled = true;
+              timerStatus.textContent = 'Timer is ready';
+              timerStatus.style.color = '';
+            }
+            
+            break;
+          }
+        }
+        
+        if (!found) {
+          alert('Reservation not found. Please check the ID and try again.');
+        }
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to load reservation. Please try again later.');
+      }
+    }
+    
+    // Function to start the timer
+    async function startTimer() {
+      if (!reservationDetails || timerActive) return;
+      
+      try {
+        const response = await fetch('/api/timer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            reservation_id: reservationDetails.reservation_id,
+            action: 'start'
+          })
+        });
+        
+        if (!response.ok) throw new Error('Failed to start timer');
+        
+        const data = await response.json();
+        console.log('Timer started:', data);
+        
+        // Update UI
+        timerActive = true;
+        startTime = new Date(data.start_time);
+        updateTimerDisplay();
+        startTimerInterval();
+        
+        startTimerBtn.disabled = true;
+        stopTimerBtn.disabled = false;
+        timerStatus.textContent = 'Timer is running';
+        timerStatus.style.color = '#4caf50';
+        
+        // Add active class to timer card
+        reservationDetailsDiv.classList.add('timer-active');
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to start timer. Please try again.');
+      }
+    }
+    
+    // Function to stop the timer
+    async function stopTimer() {
+      if (!reservationDetails || !timerActive) return;
+      
+      try {
+        const response = await fetch('/api/timer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            reservation_id: reservationDetails.reservation_id,
+            action: 'stop'
+          })
+        });
+        
+        if (!response.ok) throw new Error('Failed to stop timer');
+        
+        const data = await response.json();
+        console.log('Timer stopped:', data);
+        
+        // Update UI
+        timerActive = false;
+        clearInterval(timerInterval);
+        
+        startTimerBtn.disabled = false;
+        stopTimerBtn.disabled = true;
+        timerStatus.textContent = `Timer stopped. Total time: ${formatTime(Math.floor(data.duration_minutes * 60))}`;
+        timerStatus.style.color = '#f44336';
+        
+        // Remove active class from timer card
+        reservationDetailsDiv.classList.remove('timer-active');
+      } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to stop timer. Please try again.');
+      }
+    }
+    
+    // Function to start the timer interval
+    function startTimerInterval() {
+      clearInterval(timerInterval);
+      timerInterval = setInterval(updateTimerDisplay, 1000);
+    }
+    
+    // Function to update the timer display
+    function updateTimerDisplay() {
+      if (!startTime) return;
+      
+      const now = new Date();
+      const elapsedSeconds = Math.floor((now - startTime) / 1000);
+      
+      timerDisplay.textContent = formatTime(elapsedSeconds);
+    }
+    
+    // Function to format time in HH:MM:SS
+    function formatTime(totalSeconds) {
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      
+      return [hours, minutes, seconds]
+        .map(v => v < 10 ? "0" + v : v)
+        .join(":");
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+{% extends 'admin/master.html' %}
+{% block body %}
+  <h2>Active Timers</h2>
+  
+  {% if active_timers %}
+    <div class="table-responsive">
+      <table class="table table-striped table-bordered">
+        <thead>
+          <tr>
+            <th>Reservation ID</th>
+            <th>Date</th>
+            <th>Room</th>
+            <th>Email</th>
+            <th>Timer Started</th>
+            <th>Duration</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for timer in active_timers %}
+            <tr>
+              <td>{{ timer.id }}</td>
+              <td>{{ timer.date }}</td>
+              <td>Room {{ timer.room.room_number }}</td>
+              <td>{{ timer.email }}</td>
+              <td>{{ timer.timer_start }}</td>
+              <td id="duration-{{ timer.id }}">Calculating...</td>
+              <td>
+                <button class="btn btn-sm btn-danger stop-timer" data-id="{{ timer.id }}">Stop Timer</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        // Update durations
+        const timerElements = document.querySelectorAll('[id^="duration-"]');
+        
+        // Function to format duration
+        function formatDuration(seconds) {
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          const secs = seconds % 60;
+          
+          return [hours, minutes, secs]
+            .map(v => v < 10 ? "0" + v : v)
+            .join(":");
+        }
+        
+        // Update timer durations
+        function updateDurations() {
+          {% for timer in active_timers %}
+            const startTime = new Date("{{ timer.timer_start }}");
+            const now = new Date();
+            const duration = Math.floor((now - startTime) / 1000);
+            
+            const durationElement = document.getElementById('duration-{{ timer.id }}');
+            if (durationElement) {
+              durationElement.textContent = formatDuration(duration);
+            }
+          {% endfor %}
+        }
+        
+        // Initial update
+        updateDurations();
+        
+        // Update every second
+        setInterval(updateDurations, 1000);
+        
+        // Add event listeners to stop buttons
+        const stopButtons = document.querySelectorAll('.stop-timer');
+        stopButtons.forEach(btn => {
+          btn.addEventListener('click', function() {
+            const reservationId = this.getAttribute('data-id');
+            if (confirm('Are you sure you want to stop this timer?')) {
+              fetch('/api/timer', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  reservation_id: reservationId,
+                  action: 'stop'
+                })
+              })
+              .then(response => {
+                if (response.ok) {
+                  location.reload();
+                } else {
+                  alert('Failed to stop timer');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to stop timer');
+              });
+            }
+          });
+        });
+      });
+    </script>
+  {% else %}
+    <div class="alert alert-info">
+      <p>No active timers at the moment.</p>
+    </div>
+  {% endif %}
+{% endblock %}
